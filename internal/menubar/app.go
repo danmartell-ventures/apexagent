@@ -65,7 +65,7 @@ func (a *App) Quit() {
 }
 
 func (a *App) onReady() {
-	systray.SetIcon(iconGreen)
+	systray.SetIcon(iconGray)
 	systray.SetTooltip("Apex Agent")
 
 	mVersion := systray.AddMenuItem("Apex Agent "+version.Version, "")
