@@ -11,6 +11,7 @@ import (
 
 	"github.com/danmartell-ventures/apexagent/internal/config"
 	"github.com/danmartell-ventures/apexagent/internal/container"
+	"github.com/danmartell-ventures/apexagent/internal/introspect"
 )
 
 const reportInterval = 15 * time.Second
@@ -23,6 +24,7 @@ const removedThreshold = 3
 type Reporter struct {
 	cfg     config.ServerConfig
 	monitor *container.Monitor
+	checker *introspect.Checker
 	log     *slog.Logger
 	client  *http.Client
 
@@ -30,10 +32,11 @@ type Reporter struct {
 	consecutive401 int
 }
 
-func NewReporter(cfg config.ServerConfig, monitor *container.Monitor, log *slog.Logger) *Reporter {
+func NewReporter(cfg config.ServerConfig, monitor *container.Monitor, checker *introspect.Checker, log *slog.Logger) *Reporter {
 	return &Reporter{
 		cfg:     cfg,
 		monitor: monitor,
+		checker: checker,
 		log:     log.With("component", "telemetry"),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -67,7 +70,12 @@ func (r *Reporter) Run(ctx context.Context) error {
 
 func (r *Reporter) report(ctx context.Context) {
 	containers := r.monitor.Containers()
-	payload := Collect(ctx, r.cfg.ReportingToken, containers)
+
+	// Run introspection checks (concurrent, with per-container timeouts)
+	r.checker.CheckAll(ctx, containers)
+	health := r.checker.Results()
+
+	payload := Collect(ctx, r.cfg.ReportingToken, containers, health)
 
 	data, err := json.Marshal(payload)
 	if err != nil {

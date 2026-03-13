@@ -187,7 +187,11 @@ func statusCmd() *cobra.Command {
 				if c.Running {
 					state = fmt.Sprintf("running (%.1f%% CPU, %.0fMB)", c.CPU, c.MemMB)
 				}
-				fmt.Printf("  %s — %s\n", c.Name, state)
+				name := c.Name
+				if c.PersonaName != "" {
+					name = fmt.Sprintf("%s (%s)", c.PersonaName, c.Name)
+				}
+				fmt.Printf("  %s — %s\n", name, state)
 			}
 			return nil
 		},

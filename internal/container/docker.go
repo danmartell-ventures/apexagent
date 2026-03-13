@@ -78,6 +78,15 @@ func (d *Docker) InspectHealth(ctx context.Context, name string) (string, error)
 	return strings.TrimSpace(out), nil
 }
 
+// InspectLabel returns the value of a Docker label on a container.
+func (d *Docker) InspectLabel(ctx context.Context, name, label string) string {
+	out, err := d.run(ctx, "inspect", "--format", fmt.Sprintf("{{index .Config.Labels %q}}", label), name)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 // ContainerStats returns CPU and memory usage.
 func (d *Docker) ContainerStats(ctx context.Context, name string) (cpu float64, memMB float64, err error) {
 	out, err := d.run(ctx, "stats", "--no-stream", "--format",
@@ -128,6 +137,33 @@ func (d *Docker) StopAndStart(ctx context.Context, name string) error {
 		return fmt.Errorf("start: %w", err)
 	}
 	return nil
+}
+
+// InspectPort returns the host-side published port for a given container port.
+func (d *Docker) InspectPort(ctx context.Context, name string, containerPort int) (int, error) {
+	format := fmt.Sprintf(`{{(index (index .NetworkSettings.Ports "%d/tcp") 0).HostPort}}`, containerPort)
+	out, err := d.run(ctx, "inspect", "--format", format, name)
+	if err != nil {
+		return 0, err
+	}
+	var port int
+	fmt.Sscanf(strings.TrimSpace(out), "%d", &port)
+	return port, nil
+}
+
+// InspectEnv reads a specific environment variable from a container's config.
+func (d *Docker) InspectEnv(ctx context.Context, name, envVar string) (string, error) {
+	out, err := d.run(ctx, "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", name)
+	if err != nil {
+		return "", err
+	}
+	prefix := envVar + "="
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix), nil
+		}
+	}
+	return "", fmt.Errorf("env var %s not found", envVar)
 }
 
 // IsRunning checks if a container is running.

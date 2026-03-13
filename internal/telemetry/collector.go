@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/danmartell-ventures/apexagent/internal/container"
+	"github.com/danmartell-ventures/apexagent/internal/introspect"
 	"github.com/danmartell-ventures/apexagent/pkg/version"
 )
 
@@ -27,15 +29,23 @@ type HostInfo struct {
 
 // ContainerStats matches the shell script's per-container object.
 type ContainerStats struct {
-	State          string `json:"state"`
-	CPUPercent     string `json:"cpu_percent"`
-	MemUsage       string `json:"mem_usage"`
-	MemLimit       string `json:"mem_limit"`
-	MemPercent     string `json:"mem_percent"`
-	NetIO          string `json:"net_io"`
-	BlockIO        string `json:"block_io"`
-	PIDs           string `json:"pids"`
+	State           string `json:"state"`
+	CPUPercent      string `json:"cpu_percent"`
+	MemUsage        string `json:"mem_usage"`
+	MemLimit        string `json:"mem_limit"`
+	MemPercent      string `json:"mem_percent"`
+	NetIO           string `json:"net_io"`
+	BlockIO         string `json:"block_io"`
+	PIDs            string `json:"pids"`
 	OpenClawVersion string `json:"openclaw_version"`
+
+	// Introspection fields — gateway health from inside the container
+	GatewayUp        *bool            `json:"gateway_up,omitempty"`
+	GatewayLatencyMs *int             `json:"gateway_latency_ms,omitempty"`
+	SessionCount     *int             `json:"session_count,omitempty"`
+	HeartbeatSecs    *int             `json:"heartbeat_seconds,omitempty"`
+	GatewayUptimeMs  *int64           `json:"gateway_uptime_ms,omitempty"`
+	Channels         json.RawMessage  `json:"channels,omitempty"`
 }
 
 // Payload is the telemetry report sent to the mothership.
@@ -47,8 +57,8 @@ type Payload struct {
 	Containers    map[string]ContainerStats `json:"containers"`
 }
 
-// Collect gathers system and container metrics.
-func Collect(ctx context.Context, token string, containers []container.ContainerStatus) Payload {
+// Collect gathers system and container metrics, merging introspection data when available.
+func Collect(ctx context.Context, token string, containers []container.ContainerStatus, health map[string]*introspect.ContainerHealth) Payload {
 	host := collectHostInfo()
 
 	cMap := make(map[string]ContainerStats)
@@ -57,7 +67,7 @@ func Collect(ctx context.Context, token string, containers []container.Container
 		if c.Running {
 			state = "running"
 		}
-		cMap[c.Name] = ContainerStats{
+		stats := ContainerStats{
 			State:      state,
 			CPUPercent: fmt.Sprintf("%.2f%%", c.CPU),
 			MemUsage:   fmt.Sprintf("%.0fMiB", c.MemMB),
@@ -65,6 +75,25 @@ func Collect(ctx context.Context, token string, containers []container.Container
 			MemPercent: fmt.Sprintf("%.1f%%", c.MemMB/3072*100),
 			PIDs:       "0",
 		}
+
+		// Merge introspection data if available
+		if h, ok := health[c.Name]; ok {
+			if h.Liveness != nil {
+				stats.GatewayUp = &h.Liveness.Up
+				stats.GatewayLatencyMs = &h.Liveness.LatencyMs
+			}
+			if h.HealthDetail != nil {
+				stats.SessionCount = &h.HealthDetail.SessionCount
+				stats.HeartbeatSecs = &h.HealthDetail.HeartbeatSecs
+				stats.GatewayUptimeMs = &h.HealthDetail.UptimeMs
+				if h.HealthDetail.Channels != nil {
+					channelBytes, _ := json.Marshal(h.HealthDetail.Channels)
+					stats.Channels = channelBytes
+				}
+			}
+		}
+
+		cMap[c.Name] = stats
 	}
 
 	return Payload{

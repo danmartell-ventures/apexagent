@@ -39,11 +39,12 @@ type Actions struct {
 
 // App manages the macOS menubar icon.
 type App struct {
-	log      *slog.Logger
-	status   StatusProvider
-	updates  UpdateProvider
-	actions  Actions
-	done     chan struct{}
+	log            *slog.Logger
+	status         StatusProvider
+	updates        UpdateProvider
+	actions        Actions
+	done           chan struct{}
+	containerItems []*systray.MenuItem
 }
 
 func NewApp(status StatusProvider, updates UpdateProvider, actions Actions, log *slog.Logger) *App {
@@ -80,6 +81,15 @@ func (a *App) onReady() {
 
 	mContainers := systray.AddMenuItem("Containers: checking...", "")
 	mContainers.Disable()
+
+	// Pre-allocate container sub-items (hidden until needed)
+	const maxContainerSlots = 10
+	for i := 0; i < maxContainerSlots; i++ {
+		item := mContainers.AddSubMenuItem("", "")
+		item.Disable()
+		item.Hide()
+		a.containerItems = append(a.containerItems, item)
+	}
 
 	mReregister := systray.AddMenuItem("Re-register This Mac...", "Set up this Mac with a new token")
 	mReregister.Click(func() {
@@ -222,13 +232,50 @@ func (a *App) updateMenu(mTunnel, mContainers, mUpdate, mReregister *systray.Men
 			running++
 		}
 	}
-	mContainers.SetTitle(fmt.Sprintf("Containers: %d running", running))
+	if len(containers) == 0 {
+		mContainers.SetTitle("Containers: none")
+	} else {
+		mContainers.SetTitle(fmt.Sprintf("Containers: %d running", running))
+	}
+
+	// Update container submenu items
+	a.updateContainerItems(containers)
 
 	// Update available indicator
 	if ver, ok := a.updates.HasPendingUpdate(); ok {
 		mUpdate.SetTitle(fmt.Sprintf("Update to v%s", ver))
 		mUpdate.Enable()
 	}
+}
+
+func (a *App) updateContainerItems(containers []container.ContainerStatus) {
+	for i, item := range a.containerItems {
+		if i < len(containers) {
+			c := containers[i]
+			name := containerDisplayName(c)
+			status := "stopped"
+			if c.Running {
+				status = fmt.Sprintf("running (%.1f%% CPU, %.0fMB)", c.CPU, c.MemMB)
+			}
+			item.SetTitle(fmt.Sprintf("%s — %s", name, status))
+			item.Show()
+		} else {
+			item.Hide()
+		}
+	}
+}
+
+// containerDisplayName returns the persona name if set, otherwise a short container name.
+func containerDisplayName(c container.ContainerStatus) string {
+	if c.PersonaName != "" {
+		return c.PersonaName
+	}
+	// Strip the "apex-" prefix from the container name for readability
+	name := c.Name
+	if len(name) > 20 {
+		name = name[:20] + "…"
+	}
+	return name
 }
 
 func (a *App) onExit() {

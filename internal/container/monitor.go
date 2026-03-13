@@ -16,11 +16,12 @@ const (
 
 // ContainerStatus tracks status visible to external consumers.
 type ContainerStatus struct {
-	Name    string
-	Running bool
-	CPU     float64
-	MemMB   float64
-	Health  string
+	Name        string
+	PersonaName string
+	Running     bool
+	CPU         float64
+	MemMB       float64
+	Health      string
 }
 
 // Monitor watches containers and performs auto-recovery.
@@ -41,6 +42,11 @@ func NewMonitor(prefix string, log *slog.Logger) *Monitor {
 		log:       log.With("component", "container"),
 		cooldowns: make(map[string]time.Time),
 	}
+}
+
+// Docker returns the underlying Docker wrapper for use by introspection.
+func (m *Monitor) Docker() *Docker {
+	return m.docker
 }
 
 // Containers returns the latest container statuses.
@@ -80,8 +86,9 @@ func (m *Monitor) poll(ctx context.Context) {
 	var statuses []ContainerStatus
 	for _, c := range containers {
 		status := ContainerStatus{
-			Name:    c.Name,
-			Running: c.Running,
+			Name:        c.Name,
+			PersonaName: m.docker.InspectLabel(ctx, c.Name, "apex.persona_name"),
+			Running:     c.Running,
 		}
 
 		if c.Running {
