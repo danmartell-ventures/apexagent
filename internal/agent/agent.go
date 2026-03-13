@@ -175,8 +175,14 @@ func (a *Agent) Run() error {
 	if a.menuApp != nil {
 		a.menuApp.Run() // Blocks until quit
 	} else {
-		// Headless: wait for signal
+		// Headless: wait for context cancel
 		<-ctx.Done()
+		// If removed from fleet, stay alive so launchd doesn't restart us
+		// in a crash loop. Just idle until SIGTERM.
+		if a.isRemoved {
+			a.log.Info("removed from fleet, idling until manually stopped")
+			select {}
+		}
 	}
 
 	a.wg.Wait()
