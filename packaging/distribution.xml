@@ -2,6 +2,7 @@
 <installer-gui-script minSpecVersion="2">
     <title>Apex Agent</title>
     <welcome file="welcome.html" />
+    <background file="background.png" alignment="topleft" scaling="none" />
     <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64" />
     <os-version min="13.0" />
     <choices-outline>
