@@ -28,10 +28,17 @@ icons:
 install: build
 	cp bin/apex-agent /usr/local/bin/apex-agent
 
+SIGN_ID_APP ?= Developer ID Application: everydev, LLC (G262XC7MP2)
+SIGN_ID_PKG ?= Developer ID Installer: everydev, LLC (G262XC7MP2)
+
 pkg: build
 	@echo "Building PKG installer (v$(VERSION))..."
 	@mkdir -p bin/pkg-root/usr/local/bin
 	@cp bin/apex-agent bin/pkg-root/usr/local/bin/apex-agent
+	@codesign --force --options runtime --timestamp \
+		--entitlements packaging/entitlements.plist \
+		--sign "$(SIGN_ID_APP)" \
+		bin/pkg-root/usr/local/bin/apex-agent
 	@pkgbuild \
 		--root bin/pkg-root \
 		--identifier host.apex.agent \
@@ -42,8 +49,9 @@ pkg: build
 		--distribution packaging/distribution.xml \
 		--resources packaging \
 		--package-path bin \
+		--sign "$(SIGN_ID_PKG)" \
 		bin/ApexAgent-$(VERSION).pkg
 	@rm -f bin/apex-agent.pkg
-	@echo "Built bin/ApexAgent-$(VERSION).pkg"
+	@echo "Built bin/ApexAgent-$(VERSION).pkg (signed)"
 
 .DEFAULT_GOAL := build
