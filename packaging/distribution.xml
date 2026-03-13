@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Apex Agent</title>
+    <welcome file="welcome.html" />
+    <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64" />
+    <os-version min="13.0" />
+    <choices-outline>
+        <line choice="default">
+            <line choice="host.apex.agent" />
+        </line>
+    </choices-outline>
+    <choice id="default" />
+    <choice id="host.apex.agent" visible="false">
+        <pkg-ref id="host.apex.agent" />
+    </choice>
+    <pkg-ref id="host.apex.agent" version="0.0.0" onConclusion="none">apex-agent.pkg</pkg-ref>
+</installer-gui-script>

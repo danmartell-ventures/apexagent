@@ -32,3 +32,121 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Import signing certificates
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/productsign
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
+      - name: Codesign binary
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Find the universal binary from GoReleaser output
+          BINARY=$(find dist -name "apex-agent" -type f | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "Error: Could not find apex-agent binary in dist/"
+            exit 1
+          fi
+
+          echo "Signing binary: $BINARY"
+          codesign --force --timestamp --options runtime \
+            --entitlements packaging/entitlements.plist \
+            --sign "Developer ID Application: Daniel Martell ($APPLE_TEAM_ID)" \
+            "$BINARY"
+
+          codesign --verify --deep --strict "$BINARY"
+          echo "SIGNED_BINARY=$BINARY" >> $GITHUB_ENV
+
+      - name: Build PKG installer
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+
+          # Create payload directory
+          mkdir -p pkg-root/usr/local/bin
+          cp "$SIGNED_BINARY" pkg-root/usr/local/bin/apex-agent
+          chmod 755 pkg-root/usr/local/bin/apex-agent
+
+          # Build component package
+          pkgbuild \
+            --root pkg-root \
+            --identifier host.apex.agent \
+            --version "$VERSION" \
+            --scripts packaging/scripts \
+            --install-location / \
+            component.pkg
+
+          # Update version in distribution.xml
+          sed "s/version=\"0.0.0\"/version=\"$VERSION\"/" packaging/distribution.xml > dist-versioned.xml
+
+          # Build product package
+          productbuild \
+            --distribution dist-versioned.xml \
+            --resources packaging \
+            --package-path . \
+            unsigned.pkg
+
+          # Sign the package
+          productsign \
+            --sign "Developer ID Installer: Daniel Martell ($APPLE_TEAM_ID)" \
+            --timestamp \
+            unsigned.pkg \
+            "apex-agent.pkg"
+
+          rm -f component.pkg unsigned.pkg dist-versioned.xml
+          echo "PKG_PATH=apex-agent.pkg" >> $GITHUB_ENV
+          echo "PKG_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Notarize PKG
+        if: env.PKG_PATH != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          echo "Submitting PKG for notarization..."
+          xcrun notarytool submit "$PKG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait \
+            --timeout 600
+
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$PKG_PATH"
+          xcrun stapler validate "$PKG_PATH"
+
+      - name: Upload PKG to release
+        if: env.PKG_PATH != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" "$PKG_PATH" --clobber

@@ -58,7 +58,7 @@ func New(cfg *config.Config, log *slog.Logger, headless bool) *Agent {
 	if !headless {
 		a.power = platform.NewPowerMonitor(log)
 		a.network = platform.NewNetworkMonitor(log)
-		a.menuApp = menubar.NewApp(a, menubar.Actions{
+		a.menuApp = menubar.NewApp(a, updater, menubar.Actions{
 			RestartTunnel: func() { tunnelMgr.Reconnect() },
 			CheckUpdate: func() {
 				go func() {
@@ -67,6 +67,12 @@ func New(cfg *config.Config, log *slog.Logger, headless bool) *Agent {
 						log.Error("manual update check failed", "error", err)
 					}
 				}()
+			},
+			ApplyUpdate: func() {
+				_, _, err := updater.ApplyUpdate(context.Background())
+				if err != nil {
+					log.Error("update install failed", "error", err)
+				}
 			},
 			OpenDashboard: func() {
 				exec.Command("open", cfg.Server.URL).Start()

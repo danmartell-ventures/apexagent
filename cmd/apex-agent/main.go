@@ -60,7 +60,22 @@ func runCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgPath)
 			if err != nil {
-				return fmt.Errorf("loading config: %w", err)
+				// Config doesn't exist or is invalid — trigger first-run setup
+				if !headless {
+					if setupErr := runFirstRunSetup(); setupErr != nil {
+						// If user cancelled or setup failed, show error and exit
+						platform.ShowErrorDialog("Apex Agent", fmt.Sprintf("Setup failed: %v", setupErr))
+						return setupErr
+					}
+					// Reload config after successful setup
+					cfg, err = config.Load(cfgPath)
+					if err != nil {
+						platform.ShowErrorDialog("Apex Agent", fmt.Sprintf("Config error after setup: %v", err))
+						return fmt.Errorf("loading config after setup: %w", err)
+					}
+				} else {
+					return fmt.Errorf("loading config: %w", err)
+				}
 			}
 
 			log, err := logging.Setup(cfg.Agent.LogDir, cfg.Agent.LogLevel, foreground)
@@ -90,16 +105,34 @@ func runCmd() *cobra.Command {
 	return cmd
 }
 
+// runFirstRunSetup shows the native macOS setup dialog and runs the setup flow.
+func runFirstRunSetup() error {
+	token, server, ok := platform.ShowSetupDialog("https://app.apex.host")
+	if !ok {
+		return fmt.Errorf("setup cancelled by user")
+	}
+	return runSetup(token, server, false)
+}
+
 func setupCmd() *cobra.Command {
 	var migrate bool
 	var serverURL string
 
 	cmd := &cobra.Command{
-		Use:   "setup <TOKEN>",
+		Use:   "setup [TOKEN]",
 		Short: "Bootstrap the agent with a setup token",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Bootstrap the agent with a setup token. If no token is provided, a native dialog will prompt for it.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSetup(args[0], serverURL, migrate)
+			if len(args) == 1 {
+				return runSetup(args[0], serverURL, migrate)
+			}
+			// No token provided — show GUI dialog
+			token, server, ok := platform.ShowSetupDialog(serverURL)
+			if !ok {
+				return fmt.Errorf("setup cancelled")
+			}
+			return runSetup(token, server, migrate)
 		},
 	}
 
@@ -386,25 +419,39 @@ func runSetup(token string, serverURL string, migrate bool) error {
 	fmt.Print("Checking SSH access... ")
 	if !platform.CheckSSH() {
 		fmt.Println("not enabled")
-		fmt.Println("→ Enabling Remote Login (you may be prompted for your password)...")
-		if platform.EnableSSH() {
+		isGUI := !platform.IsInteractiveTerminal()
+		if isGUI {
+			// GUI mode (launched from launchd/PKG installer) — use native admin dialog
+			fmt.Println("→ Enabling Remote Login via system dialog...")
+			if !platform.EnableSSHGUI() {
+				platform.ShowErrorDialog("Apex Agent Setup",
+					"Could not enable Remote Login (SSH).\n\n"+
+						"Please open System Settings → General → Sharing → Remote Login and toggle it ON, then restart Apex Agent.")
+				return fmt.Errorf("SSH is not available — please enable Remote Login and try again")
+			}
 			fmt.Println("  SSH enabled")
 		} else {
-			fmt.Println()
-			fmt.Println("  ┌─────────────────────────────────────────────────────────────┐")
-			fmt.Println("  │                                                             │")
-			fmt.Println("  │  Could not enable SSH automatically.                        │")
-			fmt.Println("  │                                                             │")
-			fmt.Println("  │  Open System Settings → General → Sharing → Remote Login    │")
-			fmt.Println("  │  and toggle it ON.                                          │")
-			fmt.Println("  │                                                             │")
-			fmt.Println("  │  Press Enter here once it's enabled...                      │")
-			fmt.Println("  │                                                             │")
-			fmt.Println("  └─────────────────────────────────────────────────────────────┘")
-			fmt.Println()
-			fmt.Scanln()
-			if !platform.CheckSSH() {
-				return fmt.Errorf("SSH is still not available — please enable Remote Login and try again")
+			// Terminal mode — use sudo prompts
+			fmt.Println("→ Enabling Remote Login (you may be prompted for your password)...")
+			if platform.EnableSSH() {
+				fmt.Println("  SSH enabled")
+			} else {
+				fmt.Println()
+				fmt.Println("  ┌─────────────────────────────────────────────────────────────┐")
+				fmt.Println("  │                                                             │")
+				fmt.Println("  │  Could not enable SSH automatically.                        │")
+				fmt.Println("  │                                                             │")
+				fmt.Println("  │  Open System Settings → General → Sharing → Remote Login    │")
+				fmt.Println("  │  and toggle it ON.                                          │")
+				fmt.Println("  │                                                             │")
+				fmt.Println("  │  Press Enter here once it's enabled...                      │")
+				fmt.Println("  │                                                             │")
+				fmt.Println("  └─────────────────────────────────────────────────────────────┘")
+				fmt.Println()
+				fmt.Scanln()
+				if !platform.CheckSSH() {
+					return fmt.Errorf("SSH is still not available — please enable Remote Login and try again")
+				}
 			}
 		}
 	}

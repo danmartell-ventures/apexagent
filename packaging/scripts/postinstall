@@ -1,0 +1,73 @@
+#!/bin/bash
+# Postinstall script for Apex Agent PKG installer.
+# Runs as root after the binary is installed to /usr/local/bin/apex-agent.
+# Creates a launchd plist for the console user and starts the agent.
+
+set -e
+
+BINARY="/usr/local/bin/apex-agent"
+LABEL="host.apex.agent"
+
+# Get the console user (the person who double-clicked the PKG)
+CONSOLE_USER=$(/usr/bin/stat -f "%Su" /dev/console)
+if [ "$CONSOLE_USER" = "root" ] || [ -z "$CONSOLE_USER" ]; then
+    # Fallback: try loginwindow
+    CONSOLE_USER=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ { print $3 }')
+fi
+
+if [ "$CONSOLE_USER" = "root" ] || [ -z "$CONSOLE_USER" ]; then
+    echo "Warning: Could not determine console user, skipping service install"
+    exit 0
+fi
+
+CONSOLE_UID=$(id -u "$CONSOLE_USER")
+USER_HOME=$(eval echo "~$CONSOLE_USER")
+LAUNCH_AGENTS_DIR="$USER_HOME/Library/LaunchAgents"
+PLIST="$LAUNCH_AGENTS_DIR/$LABEL.plist"
+LOG_DIR="$USER_HOME/.apex/logs"
+
+# Create directories
+mkdir -p "$LAUNCH_AGENTS_DIR"
+mkdir -p "$LOG_DIR"
+chown "$CONSOLE_USER" "$USER_HOME/.apex" "$LOG_DIR"
+
+# Write launchd plist
+cat > "$PLIST" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$BINARY</string>
+        <string>run</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$LOG_DIR/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>$LOG_DIR/launchd-stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
+EOF
+
+chown "$CONSOLE_USER" "$PLIST"
+
+# Unload existing service if running (ignore errors)
+launchctl asuser "$CONSOLE_UID" launchctl unload "$PLIST" 2>/dev/null || true
+
+# Load and start the agent as the console user
+launchctl asuser "$CONSOLE_UID" launchctl load "$PLIST"
+
+echo "Apex Agent installed and started for user $CONSOLE_USER"
+exit 0

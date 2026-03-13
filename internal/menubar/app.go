@@ -19,10 +19,16 @@ type StatusProvider interface {
 	Containers() []container.ContainerStatus
 }
 
+// UpdateProvider supplies update state to the menubar.
+type UpdateProvider interface {
+	HasPendingUpdate() (newVersion string, available bool)
+}
+
 // Actions the menubar can trigger.
 type Actions struct {
 	RestartTunnel  func()
 	CheckUpdate    func()
+	ApplyUpdate    func()
 	OpenDashboard  func()
 	ViewLogs       func()
 	Quit           func()
@@ -32,14 +38,16 @@ type Actions struct {
 type App struct {
 	log      *slog.Logger
 	status   StatusProvider
+	updates  UpdateProvider
 	actions  Actions
 	done     chan struct{}
 }
 
-func NewApp(status StatusProvider, actions Actions, log *slog.Logger) *App {
+func NewApp(status StatusProvider, updates UpdateProvider, actions Actions, log *slog.Logger) *App {
 	return &App{
 		log:     log.With("component", "menubar"),
 		status:  status,
+		updates: updates,
 		actions: actions,
 		done:    make(chan struct{}),
 	}
@@ -95,10 +103,19 @@ func (a *App) onReady() {
 		}
 	})
 
-	mCheckUpdate := systray.AddMenuItem("Check for Updates", "Check for a newer agent version")
-	mCheckUpdate.Click(func() {
-		if a.actions.CheckUpdate != nil {
-			a.actions.CheckUpdate()
+	mUpdate := systray.AddMenuItem("Check for Updates", "Check for a newer agent version")
+	mUpdate.Click(func() {
+		// If there's a pending update, apply it; otherwise just check
+		if ver, ok := a.updates.HasPendingUpdate(); ok {
+			mUpdate.SetTitle(fmt.Sprintf("Installing v%s...", ver))
+			mUpdate.Disable()
+			if a.actions.ApplyUpdate != nil {
+				go a.actions.ApplyUpdate()
+			}
+		} else {
+			if a.actions.CheckUpdate != nil {
+				a.actions.CheckUpdate()
+			}
 		}
 	})
 
@@ -119,12 +136,12 @@ func (a *App) onReady() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			a.updateMenu(mTunnel, mContainers)
+			a.updateMenu(mTunnel, mContainers, mUpdate)
 		}
 	}()
 }
 
-func (a *App) updateMenu(mTunnel, mContainers *systray.MenuItem) {
+func (a *App) updateMenu(mTunnel, mContainers, mUpdate *systray.MenuItem) {
 	state := a.status.TunnelState()
 	containers := a.status.Containers()
 
@@ -158,6 +175,12 @@ func (a *App) updateMenu(mTunnel, mContainers *systray.MenuItem) {
 		}
 	}
 	mContainers.SetTitle(fmt.Sprintf("Containers: %d running", running))
+
+	// Update available indicator
+	if ver, ok := a.updates.HasPendingUpdate(); ok {
+		mUpdate.SetTitle(fmt.Sprintf("Update to v%s", ver))
+		mUpdate.Enable()
+	}
 }
 
 func (a *App) onExit() {

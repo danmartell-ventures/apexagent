@@ -20,7 +20,7 @@ func CheckSSH() bool {
 }
 
 // EnableSSH tries to enable Remote Login programmatically (requires sudo).
-// Returns true if SSH becomes available.
+// Returns true if SSH becomes available. Uses terminal sudo prompts.
 func EnableSSH() bool {
 	// Try systemsetup (works on most macOS versions)
 	cmd := exec.Command("sudo", "systemsetup", "-setremotelogin", "on")
@@ -40,6 +40,32 @@ func EnableSSH() bool {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err == nil {
+		time.Sleep(time.Second)
+		if CheckSSH() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// EnableSSHGUI tries to enable Remote Login using the native macOS admin password dialog.
+// Shows the standard macOS lock icon / admin authentication prompt (no Terminal needed).
+// Returns true if SSH becomes available.
+func EnableSSHGUI() bool {
+	// osascript "do shell script ... with administrator privileges" triggers the macOS
+	// authentication dialog with the lock icon — same UX as System Settings.
+	script := `do shell script "systemsetup -setremotelogin on" with administrator privileges`
+	if err := exec.Command("osascript", "-e", script).Run(); err == nil {
+		time.Sleep(time.Second)
+		if CheckSSH() {
+			return true
+		}
+	}
+
+	// Fallback: try launchctl via GUI elevation
+	script = `do shell script "launchctl load -w /System/Library/LaunchDaemons/ssh.plist" with administrator privileges`
+	if err := exec.Command("osascript", "-e", script).Run(); err == nil {
 		time.Sleep(time.Second)
 		if CheckSSH() {
 			return true
