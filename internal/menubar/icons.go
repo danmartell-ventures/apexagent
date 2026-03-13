@@ -18,3 +18,6 @@ var iconYellow []byte
 
 //go:embed icons/red.png
 var iconRed []byte
+
+//go:embed icons/gray.png
+var iconGray []byte
