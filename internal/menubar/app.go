@@ -128,20 +128,19 @@ func (a *App) onReady() {
 			mUpdate.Disable()
 			go func() {
 				if a.actions.CheckUpdate != nil {
-					a.actions.CheckUpdate()
+					a.actions.CheckUpdate() // blocks until check completes
 				}
-				// Give the updater a moment to populate pending state
-				time.Sleep(2 * time.Second)
 				if ver, ok := a.updates.HasPendingUpdate(); ok {
 					mUpdate.SetTitle(fmt.Sprintf("Update to v%s", ver))
+					mUpdate.Enable()
 				} else {
 					mUpdate.SetTitle("Up to date")
-				}
-				mUpdate.Enable()
-				// Reset label after a few seconds
-				time.Sleep(5 * time.Second)
-				if _, ok := a.updates.HasPendingUpdate(); !ok {
-					mUpdate.SetTitle("Check for Updates")
+					mUpdate.Enable()
+					// Reset label after a few seconds
+					time.Sleep(5 * time.Second)
+					if _, ok := a.updates.HasPendingUpdate(); !ok {
+						mUpdate.SetTitle("Check for Updates")
+					}
 				}
 			}()
 		}

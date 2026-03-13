@@ -99,12 +99,10 @@ func New(cfg *config.Config, log *slog.Logger, headless bool) *Agent {
 		a.menuApp = menubar.NewApp(a, updater, menubar.Actions{
 			RestartTunnel: func() { tunnelMgr.Reconnect() },
 			CheckUpdate: func() {
-				go func() {
-					_, _, err := updater.CheckNow(context.Background())
-					if err != nil {
-						log.Error("manual update check failed", "error", err)
-					}
-				}()
+				_, _, err := updater.CheckNow(context.Background())
+				if err != nil {
+					log.Error("manual update check failed", "error", err)
+				}
 			},
 			ApplyUpdate: func() {
 				_, _, err := updater.ApplyUpdate(context.Background())
