@@ -1,8 +1,14 @@
 # CLAUDE.md — Apex Agent
 
+## Context
+
+This agent runs on remote BYOH (Bring Your Own Hardware) Macs. It is a tunnel that allows **apexhost** (`app.apex.host`) to configure and manage those machines remotely. The agent is installed and configured by apexhost via SSH during host preparation (`apexhost/src/lib/host-preparation.ts`).
+
+**When debugging issues with the agent, fix the root cause in apexhost or in this repo's source code. Do NOT fix things locally on the host machine — the point is that everything is managed remotely.**
+
 ## Overview
 
-macOS background daemon that runs on BYOH (Bring Your Own Hardware) Macs. Shows a menu bar icon with tunnel status and container count. Monitors Docker containers, maintains a reverse SSH tunnel to the management server, sends telemetry, and performs auto-recovery.
+macOS background daemon. Shows a menu bar icon with tunnel status and container count. Monitors Docker containers, maintains a reverse SSH tunnel to the management server, sends telemetry, and performs auto-recovery.
 
 ## Commands
 
