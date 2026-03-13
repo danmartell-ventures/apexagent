@@ -56,7 +56,7 @@ func (a *App) Quit() {
 }
 
 func (a *App) onReady() {
-	systray.SetTemplateIcon(iconGreen, iconGreen)
+	systray.SetIcon(iconGreen)
 	systray.SetTooltip("Apex Agent")
 
 	mVersion := systray.AddMenuItem("Apex Agent "+version.Version, "")
@@ -131,11 +131,11 @@ func (a *App) updateMenu(mTunnel, mContainers *systray.MenuItem) {
 	// Update icon color
 	switch {
 	case state != tunnel.StateConnected:
-		systray.SetTemplateIcon(iconRed, iconRed)
+		systray.SetIcon(iconRed)
 	case hasUnhealthy(containers):
-		systray.SetTemplateIcon(iconYellow, iconYellow)
+		systray.SetIcon(iconYellow)
 	default:
-		systray.SetTemplateIcon(iconGreen, iconGreen)
+		systray.SetIcon(iconGreen)
 	}
 
 	// Update tunnel status
