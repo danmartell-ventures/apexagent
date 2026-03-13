@@ -33,8 +33,9 @@ SIGN_ID_PKG ?= Developer ID Installer: everydev, LLC (G262XC7MP2)
 
 pkg: build
 	@echo "Building PKG installer (v$(VERSION))..."
-	@mkdir -p bin/pkg-root/usr/local/bin
+	@mkdir -p bin/pkg-root/usr/local/bin bin/pkg-root/usr/local/share/apex
 	@cp bin/apex-agent bin/pkg-root/usr/local/bin/apex-agent
+	@cp packaging/apex.icns bin/pkg-root/usr/local/share/apex/apex.icns
 	@codesign --force --options runtime --timestamp \
 		--entitlements packaging/entitlements.plist \
 		--sign "$(SIGN_ID_APP)" \

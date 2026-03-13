@@ -2,15 +2,25 @@ package platform
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 // ShowSetupDialog displays a native macOS dialog asking for the setup token.
 // Returns the token, server URL, and whether the user confirmed (ok=true) or cancelled (ok=false).
 func ShowSetupDialog(defaultServer string) (token string, server string, ok bool) {
+	// Use custom icon if available, fall back to system note icon
+	home, _ := os.UserHomeDir()
+	iconPath := filepath.Join(home, ".apex", "apex.icns")
+	iconClause := "with icon note"
+	if _, err := os.Stat(iconPath); err == nil {
+		iconClause = fmt.Sprintf(`with icon file (POSIX file "%s" as alias)`, iconPath)
+	}
+
 	script := fmt.Sprintf(`
-set tokenResult to display dialog "Welcome to Apex Agent!" & return & return & "Paste your setup token from the Apex dashboard:" default answer "" buttons {"Cancel", "Connect"} default button "Connect" with title "Apex Agent Setup" with icon note
+set tokenResult to display dialog "Welcome to Apex Agent!" & return & return & "Paste your setup token from the Apex dashboard:" default answer "" buttons {"Cancel", "Connect"} default button "Connect" with title "Apex Agent Setup" %s
 set tokenText to text returned of tokenResult
 
 if tokenText is "" then
@@ -21,7 +31,7 @@ end if
 set serverURL to "%s"
 
 return tokenText & "|" & serverURL
-`, defaultServer)
+`, iconClause, defaultServer)
 
 	out, err := exec.Command("osascript", "-e", script).Output()
 	if err != nil {

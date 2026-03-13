@@ -31,6 +31,12 @@ mkdir -p "$LAUNCH_AGENTS_DIR"
 mkdir -p "$LOG_DIR"
 chown "$CONSOLE_USER" "$USER_HOME/.apex" "$LOG_DIR"
 
+# Copy icon for native dialogs
+if [ -f "/usr/local/share/apex/apex.icns" ]; then
+    cp /usr/local/share/apex/apex.icns "$USER_HOME/.apex/apex.icns"
+    chown "$CONSOLE_USER" "$USER_HOME/.apex/apex.icns"
+fi
+
 # Create pretty symlink so Login Items shows "Apex Agent"
 PRETTY_LINK="$USER_HOME/.apex/Apex Agent"
 rm -f "$PRETTY_LINK"
