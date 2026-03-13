@@ -110,6 +110,9 @@ func (a *App) onReady() {
 		systray.Quit()
 	})
 
+	// Wire up the menu to the icon click
+	systray.CreateMenu()
+
 	// Update loop
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
