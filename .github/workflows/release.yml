@@ -61,80 +61,54 @@ jobs:
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
-      - name: Codesign binary
-        if: env.APPLE_CERTIFICATE_P12 != ''
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          # Universal binary path from GoReleaser
-          BINARY="dist/apex-agent_darwin_all/apex-agent"
-          if [ -z "$BINARY" ]; then
-            echo "Error: Could not find apex-agent binary in dist/"
-            exit 1
-          fi
-
-          echo "Signing binary: $BINARY"
-          codesign --force --timestamp --options runtime \
-            --entitlements packaging/entitlements.plist \
-            --sign "Developer ID Application: everydev, LLC ($APPLE_TEAM_ID)" \
-            "$BINARY"
-
-          codesign --verify --deep --strict "$BINARY"
-          echo "SIGNED_BINARY=$BINARY" >> $GITHUB_ENV
-
-      - name: Build PKG installer
+      - name: Build and sign PKG installer
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          SIGN_ID_APP="Developer ID Application: everydev, LLC ($APPLE_TEAM_ID)"
+          SIGN_ID_PKG="Developer ID Installer: everydev, LLC ($APPLE_TEAM_ID)"
 
-          # Create payload directory
-          mkdir -p pkg-root/usr/local/bin
-          cp "$SIGNED_BINARY" pkg-root/usr/local/bin/apex-agent
-          chmod 755 pkg-root/usr/local/bin/apex-agent
+          # Match the Makefile pkg target exactly
+          mkdir -p bin/pkg-root/usr/local/bin bin/pkg-root/usr/local/share/apex
+          cp dist/apex-agent_darwin_all/apex-agent bin/pkg-root/usr/local/bin/apex-agent
+          cp packaging/apex.icns bin/pkg-root/usr/local/share/apex/apex.icns
 
-          # Build component package
+          # Sign binary IN pkg-root (cp strips signatures)
+          codesign --force --options runtime --timestamp \
+            --entitlements packaging/entitlements.plist \
+            --sign "$SIGN_ID_APP" \
+            bin/pkg-root/usr/local/bin/apex-agent
+
+          codesign --verify --deep --strict bin/pkg-root/usr/local/bin/apex-agent
+
           pkgbuild \
-            --root pkg-root \
+            --root bin/pkg-root \
             --identifier host.apex.agent \
             --version "$VERSION" \
             --scripts packaging/scripts \
-            --install-location / \
-            component.pkg
+            bin/apex-agent.pkg
 
-          # Update version in distribution.xml
-          sed "s/version=\"0.0.0\"/version=\"$VERSION\"/" packaging/distribution.xml > dist-versioned.xml
-
-          # Build product package
           productbuild \
-            --distribution dist-versioned.xml \
+            --distribution packaging/distribution.xml \
             --resources packaging \
-            --package-path . \
-            unsigned.pkg
+            --package-path bin \
+            --sign "$SIGN_ID_PKG" \
+            "bin/ApexAgent-${VERSION}.pkg"
 
-          # Sign the package
-          productsign \
-            --sign "Developer ID Installer: everydev, LLC ($APPLE_TEAM_ID)" \
-            --timestamp \
-            unsigned.pkg \
-            "apex-agent.pkg"
-
-          rm -f component.pkg unsigned.pkg dist-versioned.xml
-          echo "PKG_PATH=apex-agent.pkg" >> $GITHUB_ENV
+          rm -f bin/apex-agent.pkg
+          echo "PKG_PATH=bin/ApexAgent-${VERSION}.pkg" >> $GITHUB_ENV
           echo "PKG_VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Notarize PKG
-        continue-on-error: true
         if: env.PKG_PATH != ''
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          echo "Submitting PKG for notarization..."
           xcrun notarytool submit "$PKG_PATH" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
@@ -142,20 +116,6 @@ jobs:
             --wait \
             --timeout 600
 
-          # Fetch the notarization log regardless of outcome
-          SUBMISSION_ID=$(xcrun notarytool history \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" 2>&1 | head -5 | grep -oE '[0-9a-f-]{36}' | head -1)
-          if [ -n "$SUBMISSION_ID" ]; then
-            echo "Fetching notarization log for $SUBMISSION_ID..."
-            xcrun notarytool log "$SUBMISSION_ID" \
-              --apple-id "$APPLE_ID" \
-              --team-id "$APPLE_TEAM_ID" \
-              --password "$APPLE_APP_PASSWORD" || true
-          fi
-
-          echo "Stapling notarization ticket..."
           xcrun stapler staple "$PKG_PATH"
           xcrun stapler validate "$PKG_PATH"
 
