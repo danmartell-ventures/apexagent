@@ -31,6 +31,13 @@ mkdir -p "$LAUNCH_AGENTS_DIR"
 mkdir -p "$LOG_DIR"
 chown "$CONSOLE_USER" "$USER_HOME/.apex" "$LOG_DIR"
 
+# Create pretty symlink so Login Items shows "Apex Agent"
+PRETTY_LINK="$USER_HOME/.apex/Apex Agent"
+rm -f "$PRETTY_LINK"
+ln -s "$BINARY" "$PRETTY_LINK"
+chown -h "$CONSOLE_USER" "$PRETTY_LINK"
+PLIST_BINARY="$PRETTY_LINK"
+
 # Write launchd plist
 cat > "$PLIST" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -41,7 +48,7 @@ cat > "$PLIST" << EOF
     <string>$LABEL</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$BINARY</string>
+        <string>$PLIST_BINARY</string>
         <string>run</string>
     </array>
     <key>RunAtLoad</key>
