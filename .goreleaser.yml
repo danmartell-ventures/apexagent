@@ -35,7 +35,7 @@ checksum:
 release:
   github:
     owner: danmartell-ventures
-    name: apex-agent
+    name: apexagent
   draft: false
   prerelease: auto
   name_template: "v{{.Version}}"
