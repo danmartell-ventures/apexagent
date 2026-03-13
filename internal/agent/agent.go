@@ -277,14 +277,21 @@ func (a *Agent) handlePowerEvents(ctx context.Context) error {
 }
 
 func (a *Agent) handleNetworkEvents(ctx context.Context) error {
+	var debounce *time.Timer
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-a.network.Events:
-			a.log.Info("network change detected, reconnecting tunnel")
-			time.Sleep(time.Second) // Brief delay for interface to stabilize
-			a.tunnel.Reconnect()
+			// Debounce: wait 5s after the LAST network event before reconnecting.
+			// macOS fires many events in rapid succession during network changes.
+			if debounce != nil {
+				debounce.Stop()
+			}
+			debounce = time.AfterFunc(5*time.Second, func() {
+				a.log.Info("network change detected, reconnecting tunnel")
+				a.tunnel.Reconnect()
+			})
 		}
 	}
 }
