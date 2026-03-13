@@ -15,12 +15,19 @@ import (
 
 const reportInterval = 15 * time.Second
 
+// removedThreshold is the number of consecutive 401s before we consider
+// this host removed from the fleet. At 15s intervals, 3 = 45s.
+const removedThreshold = 3
+
 // Reporter sends telemetry to the mothership.
 type Reporter struct {
 	cfg     config.ServerConfig
 	monitor *container.Monitor
 	log     *slog.Logger
 	client  *http.Client
+
+	onRemoved      func()
+	consecutive401 int
 }
 
 func NewReporter(cfg config.ServerConfig, monitor *container.Monitor, log *slog.Logger) *Reporter {
@@ -32,6 +39,12 @@ func NewReporter(cfg config.ServerConfig, monitor *container.Monitor, log *slog.
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// OnRemoved registers a callback invoked when the server confirms this host
+// has been removed from the fleet (consecutive 401 responses).
+func (r *Reporter) OnRemoved(fn func()) {
+	r.onRemoved = fn
 }
 
 // Run starts the telemetry loop.
@@ -76,6 +89,20 @@ func (r *Reporter) report(ctx context.Context) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		r.consecutive401++
+		r.log.Warn("telemetry rejected: host not recognized", "status", resp.StatusCode, "consecutive", r.consecutive401)
+		if r.consecutive401 >= removedThreshold && r.onRemoved != nil {
+			r.log.Error("host appears to have been removed from the fleet")
+			r.onRemoved()
+			r.onRemoved = nil // fire only once
+		}
+		return
+	}
+
+	// Any successful or other response resets the counter
+	r.consecutive401 = 0
 
 	if resp.StatusCode != http.StatusOK {
 		r.log.Warn("telemetry report rejected", "status", resp.StatusCode)

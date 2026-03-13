@@ -32,8 +32,10 @@ type Agent struct {
 	power     *platform.PowerMonitor
 	network   *platform.NetworkMonitor
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	removed sync.Once
+	isRemoved bool
 }
 
 // New creates an Agent from config.
@@ -85,7 +87,28 @@ func New(cfg *config.Config, log *slog.Logger, headless bool) *Agent {
 		}, log)
 	}
 
+	// Wire up fleet removal detection
+	reporter.OnRemoved(a.handleRemoved)
+
 	return a
+}
+
+// handleRemoved is called when the server confirms this host has been removed.
+func (a *Agent) handleRemoved() {
+	a.removed.Do(func() {
+		a.log.Error("this host has been removed from the fleet — shutting down subsystems")
+		a.isRemoved = true
+		// Cancel all subsystems (tunnel, backup, etc.) but keep menubar alive
+		// so the user can see the removal notice.
+		if a.cancel != nil {
+			a.cancel()
+		}
+	})
+}
+
+// IsRemoved returns true if the server has confirmed this host was removed.
+func (a *Agent) IsRemoved() bool {
+	return a.isRemoved
 }
 
 // Run starts all subsystems. If not headless, the menubar runs on the main thread.

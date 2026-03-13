@@ -17,6 +17,7 @@ type StatusProvider interface {
 	TunnelState() tunnel.State
 	TunnelConnectedAt() time.Time
 	Containers() []container.ContainerStatus
+	IsRemoved() bool
 }
 
 // UpdateProvider supplies update state to the menubar.
@@ -142,6 +143,15 @@ func (a *App) onReady() {
 }
 
 func (a *App) updateMenu(mTunnel, mContainers, mUpdate *systray.MenuItem) {
+	// Check for fleet removal first
+	if a.status.IsRemoved() {
+		systray.SetIcon(iconRed)
+		systray.SetTooltip("Apex Agent — Removed from Fleet")
+		mTunnel.SetTitle("Removed from Fleet")
+		mContainers.SetTitle("This Mac was removed by an admin")
+		return
+	}
+
 	state := a.status.TunnelState()
 	containers := a.status.Containers()
 
